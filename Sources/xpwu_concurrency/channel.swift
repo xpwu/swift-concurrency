@@ -5,12 +5,18 @@
 
 import Foundation
 
-public protocol SendChannel {
+public protocol SendChannel<E> {
 	associatedtype E: Sendable
 	func Send(_ e: E) async
 }
 
-public protocol ReceiveChannel {
+public extension SendChannel {
+	func Send() async where E == Void {
+		await Send(())
+	}
+}
+
+public protocol ReceiveChannel<E> {
 	associatedtype E: Sendable
 	func Receive() async -> E
 }
@@ -82,10 +88,6 @@ extension Channel: SendChannel {
 				}
 			}
 		})
-	}
-	
-	public func Send() async ->Void where E == Void {
-		await Send(())
 	}
 }
 
