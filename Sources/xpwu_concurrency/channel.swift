@@ -39,7 +39,7 @@ public extension ReceiveChannel {
 		switch await ReceiveOrFailed() {
 		case .success(let r):
 			return r
-		case .failure(let err):
+		case .failure(_):
 			return nil
 		}
 	}
@@ -77,7 +77,7 @@ actor channel<E: Sendable> {
 		}
 		
 		data.en(e)
-		if data.count >= max {
+		if data.count > max {
 			sendSuspend.en(waiting)
 			return .Yes
 		}
