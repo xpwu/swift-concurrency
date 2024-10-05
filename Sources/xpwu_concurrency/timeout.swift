@@ -42,7 +42,7 @@ public func withTimeoutOrFailed<R: Sendable>(_ duration: Duration
 	}
 }
 
-// return nil: timeout or else error
+// return nil: timeout or CancellationError
 public func withTimeout<R: Sendable>(_ duration: Duration, _ body:@escaping () async -> R) async -> R? {
 	switch await withTimeoutOrFailed(duration, body) {
 	case .success(let ret):
