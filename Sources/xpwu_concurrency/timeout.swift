@@ -42,13 +42,40 @@ public func withTimeoutOrFailed<R: Sendable>(_ duration: Duration
 	}
 }
 
-// return nil: timeout or CancellationError
-public func withTimeout<R: Sendable>(_ duration: Duration, _ body:@escaping () async -> R) async -> R? {
-	switch await withTimeoutOrFailed(duration, body) {
-	case .success(let ret):
-		return ret
-	default:
-		return nil
+// return nil: timeout
+public func withTimeoutOrNil<R: Sendable>(_ duration: Duration
+																		 , _ body:@escaping () async throws/*(CancellationError)*/ -> R) async throws/*(CancellationError)*/ -> R? {
+	let ret = await withTimeoutOrFailed(duration) { () async -> R? in
+		do {
+			return try await body()
+		}catch {
+			// CancellationError
+			return nil
+		}
 	}
+	
+	switch ret {
+	case .success(let ret):
+		if let ret {
+			return ret
+		}
+		throw CancellationError()
+	case .failure(let err):
+		switch err {
+		case let e as CancellationError:
+			throw e
+		default:
+			return nil
+		}
+	}
+}
+
+public func withTimeout<R: Sendable>(_ duration: Duration
+																		 , _ body:@escaping () async throws/*(CancellationError)*/ -> R) async throws/*(CancellationError)*/ -> Result<R, TimeoutError> {
+	let ret = try await withTimeoutOrNil(duration, body)
+	if let ret {
+		return .success(ret)
+	}
+	return .failure(TimeoutError())
 }
 

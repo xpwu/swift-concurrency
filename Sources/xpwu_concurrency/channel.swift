@@ -12,17 +12,25 @@ public struct ChannelClosed: Error {
 public protocol SendChannel<E> {
 	associatedtype E: Sendable
 	// Error: ChannelClosed or CancellationError
-	func SendOrFailed(_ e: E) async ->Error?
+	func SendOrErr(_ e: E) async ->Error?
 	func Close(reason: String) async
 }
 
 public extension SendChannel {
-	func Send() async where E == Void {
-		await Send(())
+	func Send() async throws/*(CancellationError)*/ -> ChannelClosed? where E == Void {
+		try await Send(())
 	}
 	
-	func Send(_ e: E) async {
-		_ = await SendOrFailed(e)
+	func Send(_ e: E) async throws/*(CancellationError)*/-> ChannelClosed? {
+		let err = await SendOrErr(e)
+		switch err {
+		case let err as CancellationError:
+			throw err
+		case let err as ChannelClosed:
+			return err
+		default:
+			return nil
+		}
 	}
 	
 	func Close() async {
@@ -37,12 +45,28 @@ public protocol ReceiveChannel<E> {
 }
 
 public extension ReceiveChannel {
-	func Receive() async -> E? {
+	// nil: ChannelClosed or CancellationError
+	func ReceiveOrNil() async -> E? {
 		switch await ReceiveOrFailed() {
 		case .success(let r):
 			return r
 		case .failure(_):
 			return nil
+		}
+	}
+	
+	// nil: ChannelClosed
+	func Receive() async throws/*(CancellationError)*/ -> E? {
+		switch await ReceiveOrFailed() {
+		case .success(let r):
+			return r
+		case .failure(let err):
+			switch err {
+			case let e as CancellationError:
+				throw e
+			default:
+				return nil
+			}
 		}
 	}
 }
@@ -153,7 +177,7 @@ extension Channel: SendChannel {
 		await chan.close(reason: reason)
 	}
 	
-	public func SendOrFailed(_ e: E) async -> Error? {
+	public func SendOrErr(_ e: E) async -> Error? {
 		let cancer = canceler()
 		
 		return await withTaskCancellationHandler {

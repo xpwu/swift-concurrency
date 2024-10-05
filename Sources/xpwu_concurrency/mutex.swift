@@ -11,8 +11,12 @@ public class Mutex {
 }
 
 public extension Mutex {
-	func Lock() async -> Error? {
-		await sem.Acquire()
+	func Lock() async throws/*(CancellationError)*/ {
+		try await sem.Acquire()
+	}
+	
+	func LockOrErr() async -> Error? {
+		await sem.AcquireOrErr()
 	}
 	
 	func Unlock() async {
@@ -22,8 +26,8 @@ public extension Mutex {
 
 public extension Mutex {
 	// Error: CancellationError
-	func withLockOrFailed<R>(_ body: ()async->R) async -> Result<R, Error> {
-		let err = await Lock()
+	func withLockOrFailed<R>(_ body: ()async ->R) async -> Result<R, Error> {
+		let err = await LockOrErr()
 		if let err {
 			return .failure(err)
 		}
@@ -34,7 +38,30 @@ public extension Mutex {
 		return .success(ret)
 	}
 	
-	func withLock<R>(_ body: ()async->R) async -> R? {
+	// throws(CancellationError)
+	func withLock<R>(_ body: ()async throws/*(CancellationError)*/ ->R)async throws/*(CancellationError)*/ -> R {
+		let ret = await withLockOrFailed { ()async ->R? in
+			do {
+				return try await body()
+			}catch {
+				// CancellationError
+				return nil
+			}
+		}
+		
+		switch ret {
+		case .failure(_):
+			throw CancellationError()
+		case .success(let ret):
+			if let ret {
+				return ret
+			}
+			throw CancellationError()
+		}
+	}
+	
+	// nil: CancellationError
+	func withLockOrNil<R>(_ body: ()async->R)async -> R? {
 		switch await withLockOrFailed(body) {
 		case .failure(_):
 			return nil

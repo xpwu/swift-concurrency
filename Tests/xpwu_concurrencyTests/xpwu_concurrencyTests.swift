@@ -13,8 +13,8 @@ final class xpwu_concurrencyTests: XCTestCase {
 	
 	func testChannel() async throws {
 		let ch = Channel<Bool>(buffer: 1)
-		await ch.Send(true)
-		let r = await ch.Receive()
+		_ = try await ch.Send(true)
+		let r = await ch.ReceiveOrNil()
 		XCTAssertNotNil(r)
 		XCTAssertTrue(r!)
 	}
@@ -22,15 +22,15 @@ final class xpwu_concurrencyTests: XCTestCase {
 	func testChannel2() async throws {
 		let ch = Channel<Bool>(buffer: 1)
 		async let _ = ch.Send(true)
-		let r = await ch.Receive()
+		let r = await ch.ReceiveOrNil()
 		XCTAssertNotNil(r)
 		XCTAssertTrue(r!)
 	}
 	
 	func testChannel_01() async throws {
 		let ch = Channel<Bool>()
-		async let rf = ch.Receive()
-		await ch.Send(true)
+		async let rf = ch.ReceiveOrNil()
+		_ = await ch.SendOrErr(true)
 		let r = await rf
 		XCTAssertNotNil(r)
 		XCTAssertTrue(r!)
@@ -38,8 +38,8 @@ final class xpwu_concurrencyTests: XCTestCase {
 	
 	func testChannel_02() async throws {
 		let ch = Channel<Bool>()
-		async let _ = ch.Send(true)
-		let r = await ch.Receive()
+		async let _ = ch.SendOrErr(true)
+		let r = await ch.ReceiveOrNil()
 		XCTAssertNotNil(r)
 		XCTAssertTrue(r!)
 	}
@@ -47,7 +47,7 @@ final class xpwu_concurrencyTests: XCTestCase {
 	func testChannelCancel1() async throws {
 		let ch = Channel<Bool>()
 		let task = Task {
-			await ch.SendOrFailed(true)
+			await ch.SendOrErr(true)
 		}
 		try! await Task.sleep(nanoseconds: 1000000)
 		task.cancel()
@@ -76,8 +76,8 @@ final class xpwu_concurrencyTests: XCTestCase {
 	func testTimeout() async throws {
 		let ch = Channel<Bool>()
 		
-		let rt = await withTimeout(1*Duration.Second) {
-			await ch.Receive() ?? false
+		let rt = try await withTimeoutOrNil(1*Duration.Second) {
+			try await ch.Receive()!
 		}
 		XCTAssertNil(rt)
 	}
@@ -89,7 +89,7 @@ final class xpwu_concurrencyTests: XCTestCase {
 		async let group = withTaskGroup(of: Void.self, returning: Bool.self) { group in
 			for _ in 0 ... con {
 				group.addTask {
-					let err = await sem.Acquire()
+					let err = await sem.AcquireOrErr()
 					XCTAssertNil(err)
 				}
 			}
@@ -115,7 +115,7 @@ final class xpwu_concurrencyTests: XCTestCase {
 		async let group = withTaskGroup(of: Void.self, returning: Bool.self) { group in
 			for _ in 0 ..< 3 {
 				group.addTask {
-					let err = await sem.Acquire()
+					let err = await sem.AcquireOrErr()
 					XCTAssertNil(err)
 				}
 			}
@@ -124,7 +124,7 @@ final class xpwu_concurrencyTests: XCTestCase {
 			
 			for _ in 3 ..< con {
 				group.addTask {
-					let err = await sem.Acquire()
+					let err = await sem.AcquireOrErr()
 					XCTAssertNotNil(err)
 				}
 			}

@@ -72,7 +72,7 @@ public class Semaphore {
 
 public extension Semaphore {
 	// Error: CancellationError
-	func Acquire() async -> Error? {
+	func AcquireOrErr() async -> Error? {
 		let cancer = canceler()
 		
 		return await withTaskCancellationHandler {
@@ -114,6 +114,16 @@ public extension Semaphore {
 					await suspend()
 				}
 			}
+		}
+	}
+	
+	func Acquire() async throws/*(CancellationError)*/ {
+		let err = await AcquireOrErr()
+		switch err {
+		case let err as CancellationError:
+			throw err
+		default:
+			break
 		}
 	}
 	
