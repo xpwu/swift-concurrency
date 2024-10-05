@@ -11,7 +11,8 @@ public struct ChannelClosed: Error {
 
 public protocol SendChannel<E> {
 	associatedtype E: Sendable
-	func SendOrFailed(_ e: E) async ->ChannelClosed?
+	// Error: ChannelClosed or CancellationError
+	func SendOrFailed(_ e: E) async ->Error?
 	func Close(reason: String) async
 }
 
@@ -31,7 +32,8 @@ public extension SendChannel {
 
 public protocol ReceiveChannel<E> {
 	associatedtype E: Sendable
-	func ReceiveOrFailed() async -> Result<E, ChannelClosed>
+	// Error: ChannelClosed or CancellationError
+	func ReceiveOrFailed() async -> Result<E, Error>
 }
 
 public extension ReceiveChannel {
@@ -45,9 +47,14 @@ public extension ReceiveChannel {
 	}
 }
 
+struct objectForCancel {
+	let cancelF: ()->Void
+}
+
 actor channel<E: Sendable> {
+	// 以下所有的数据 仅能在 actor 内操作
 	let data: queue<E> = queue()
-	let sendSuspend: queue<(ChannelClosed?)->Void> = queue()
+	let sendSuspend: queue<(E, (ChannelClosed?)->Void)> = queue()
 	let receiveSuspend: queue<(Result<E, ChannelClosed>)->Void> = queue()
 	let max: Int
 	var closed: ChannelClosed?
@@ -59,7 +66,7 @@ actor channel<E: Sendable> {
 	func close(reason msg: String = "") {
 		closed = ChannelClosed(msg: msg)
 		while let s = sendSuspend.de() {
-			s(closed)
+			s.1(closed)
 		}
 		while let r = receiveSuspend.de() {
 			r(.failure(closed!))
@@ -67,29 +74,35 @@ actor channel<E: Sendable> {
 	}
 	
 	enum isSuspended<T> {
-		case Yes, No(todo: (()->Void)?, value: T), Failed(ChannelClosed)
+		case Yes(object: objectForCancel), No(todo: (()->Void)?, value: T), Failed(ChannelClosed)
 	}
 	
-	func send(_ e:E, ifsuspend waiting: @escaping @Sendable (ChannelClosed?)->Void) -> isSuspended<Void> {
+	// 不确定返回的闭包 在 actor 外执行的安全性，所以这里使用 actor 的方法来执行
+	func cancel(object: objectForCancel) {
+		object.cancelF()
+	}
+	
+	func send(_ e:E, ifsuspend waiting: @escaping @Sendable (ChannelClosed?) ->Void) -> isSuspended<Void> {
 		
 		if let closed {
 			return .Failed(closed)
 		}
 		
-		data.en(e)
-		if data.count > max {
-			sendSuspend.en(waiting)
-			return .Yes
-		}
-		
 		let rfun = receiveSuspend.de()
-		var todo: (()->Void)? = nil
-		if let rfun {
-			let d = data.de()!
-			todo = {rfun(.success(d))}
+		
+		if data.count >= max &&  rfun == nil {
+			let node = sendSuspend.en((e, waiting))
+			return .Yes(object: objectForCancel(cancelF: {node.inValid()}))
 		}
 		
-		return .No(todo: todo, value: ())
+		// rfun != nil: data is empty
+		if let rfun {
+			return .No(todo: {rfun(.success(e))}, value: ())
+		}
+		
+		// rfun == nil && data.count < max: max != 0
+		_ = data.en(e)
+		return .No(todo: nil, value: ())
 	}
 	
 	func receive(ifsuspend waiting: @escaping @Sendable (Result<E, ChannelClosed>)->Void) -> isSuspended<E> {
@@ -99,18 +112,26 @@ actor channel<E: Sendable> {
 		}
 		
 		let value = data.de()
-		guard let value else {
-			receiveSuspend.en(waiting)
-			return .Yes
+		let suspend = sendSuspend.de()
+		
+		if value == nil && suspend == nil {
+			let node = receiveSuspend.en(waiting)
+			return .Yes(object: objectForCancel(cancelF: {node.inValid()}))
 		}
 		
-		let sfun = sendSuspend.de()
-		var todo: (()->Void)? = nil
-		if let sfun {
-			todo = {sfun(nil)}
+		// value != nil: max != 0
+		if let value {
+			var todo: (()->Void)? = nil
+			if let (d, sfun) = suspend {
+				_ = data.en(d)
+				todo = {sfun(nil)}
+			}
+			return .No(todo: todo, value: value)
 		}
 		
-		return .No(todo: todo, value: value)
+		// value == nil && suspend != nil: max == 0
+		let (d, sfun) = suspend!
+		return .No(todo: {sfun(nil)}, value: d)
 	}
 
 }
@@ -127,51 +148,134 @@ extension Int {
 	public static let Unlimited: Int = Int.max
 }
 
+actor canceler {
+	var canceled: Bool = false
+	var cancelF: (()async->Void)?
+	var resumed: Bool = false
+
+	// false: 已经取消了，挂起失败
+	func suspend(cancelF f: @escaping ()async ->Void)->Bool {
+		cancelF = f
+		return !canceled
+	}
+	
+	func resumedAndOld()->Bool {
+		let old = resumed
+		resumed = true
+		return old
+	}
+	
+	// return: 已经挂起了，需要调用方执行”取消挂起“的操作
+	func cancel()-> (()async->Void)? {
+		canceled = true
+		return cancelF
+	}
+}
+
 extension Channel: SendChannel {
 	public func Close(reason: String) async {
 		await chan.close(reason: reason)
 	}
 	
-	public func SendOrFailed(_ e: E) async -> ChannelClosed? {
-		return await withCheckedContinuation({ (continuation: CheckedContinuation<ChannelClosed?, Never>) in
-			Task {
-				let isSuspended = await self.chan.send(e) {err in
-					continuation.resume(returning: err)
+	public func SendOrFailed(_ e: E) async -> Error? {
+		let cancer = canceler()
+		
+		return await withTaskCancellationHandler {
+			return await withCheckedContinuation({ (continuation: CheckedContinuation<Error?, Never>) in
+				
+				let resumeF = {(_ err: Error?)async ->Void in
+					if !(await cancer.resumedAndOld()) {
+						continuation.resume(returning: err)
+					}
 				}
 				
-				switch isSuspended {
-				case .Failed(let err):
-					continuation.resume(returning: err)
-				case .No(let todo , _):
-					todo?()
-					continuation.resume(returning: nil)
-				case .Yes:
-					break
+				Task {
+					let isSuspended = await self.chan.send(e) {err in
+						Task {
+							await resumeF(err)
+						}
+					}
+					
+					switch isSuspended {
+					case .Failed(let err):
+						await resumeF(err)
+					case .No(let todo , _):
+						todo?()
+						await resumeF(nil)
+					case .Yes(let object):
+						let success = await cancer.suspend {
+							await self.chan.cancel(object: object)
+							await resumeF( CancellationError())
+						}
+						// 失败，立即执行
+						if !success {
+							await self.chan.cancel(object: object)
+							await resumeF( CancellationError())
+						}
+					}
+				}
+			})
+		} onCancel: {
+			Task {
+				if let suspend = await cancer.cancel() {
+					await suspend()
 				}
 			}
-		})
+		}
 	}
 }
 
 extension Channel: ReceiveChannel {
-	public func ReceiveOrFailed() async -> Result<E, ChannelClosed> {
-		return await withCheckedContinuation({ (continuation: CheckedContinuation<Result<E, ChannelClosed>, Never>) in
-			Task {
-				let isSuspended = await self.chan.receive {value in
-					continuation.resume(returning: value)
+	public func ReceiveOrFailed() async -> Result<E, Error> {
+		let cancer = canceler()
+		
+		return await withTaskCancellationHandler {
+			return await withCheckedContinuation({ (continuation: CheckedContinuation<Result<E, Error>, Never>) in
+				
+				let resumeF = {(result: Result<E, Error>)async ->Void in
+					if !(await cancer.resumedAndOld()) {
+						continuation.resume(returning: result)
+					}
 				}
 				
-				switch isSuspended {
-				case .Failed(let err):
-					continuation.resume(returning: .failure(err))
-				case let .No(todo, value):
-					todo?()
-					continuation.resume(returning: .success(value))
-				case .Yes:
-					break
+				Task {
+					let isSuspended = await self.chan.receive {value in
+						Task {
+							switch value {
+							case .failure(let err):
+								await resumeF(.failure(err))
+							case .success(let v):
+								await resumeF(.success(v))
+							}
+						}
+					}
+					
+					switch isSuspended {
+					case .Failed(let err):
+						await resumeF(.failure(err))
+					case let .No(todo, value):
+						todo?()
+						await resumeF(.success(value))
+					case .Yes(let object):
+						let success = await cancer.suspend {
+							await self.chan.cancel(object: object)
+							await resumeF(.failure(CancellationError()))
+						}
+						// 失败，立即执行
+						if !success {
+							await self.chan.cancel(object: object)
+							await resumeF(.failure(CancellationError()))
+						}
+					}
+				}
+			})
+		} onCancel: {
+			Task {
+				if let suspend = await cancer.cancel() {
+					await suspend()
 				}
 			}
-		})
+		}
 	}
 }
 

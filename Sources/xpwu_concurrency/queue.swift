@@ -8,11 +8,16 @@
 import Foundation
 
 class node<E> {
+	var isValid: Bool = true
 	var element: E
 	var next: node<E>? = nil
 	
 	init(_ e: E) {
 		element = e
+	}
+	
+	func inValid() {
+		self.isValid = false
 	}
 }
 
@@ -21,23 +26,29 @@ class queue<E> {
 	var last: node<E>? = nil
 	var count: Int = 0
 	
-	func en(_ e: E) {
+	func en(_ e: E)->node<E> {
 		// is empty
 		defer {
 			self.count += 1
 		}
 		
+		let newNode = node(e)
 		guard let last = last else {
-			self.last = node(e)
+			self.last = newNode
 			first = self.last
-			return
+			return newNode
 		}
 		
-		last.next = node(e)
+		last.next = newNode
 		self.last = last.next
+		return newNode
 	}
 	
 	func de()-> E? {
+		while self.first != nil && !first!.isValid {
+			self.first = first!.next
+		}
+		
 		guard let first = first else {
 			return nil
 		}
