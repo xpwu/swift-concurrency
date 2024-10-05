@@ -11,7 +11,7 @@ public class Mutex {
 }
 
 public extension Mutex {
-	func Lock() async {
+	func Lock() async -> Error? {
 		await sem.Acquire()
 	}
 	
@@ -21,11 +21,25 @@ public extension Mutex {
 }
 
 public extension Mutex {
-	func WithLock<R>(_ body: ()async->R) async -> R {
-		await Lock()
+	// Error: CancellationError
+	func withLockOrFailed<R>(_ body: ()async->R) async -> Result<R, Error> {
+		let err = await Lock()
+		if let err {
+			return .failure(err)
+		}
+		
 		let ret = await body()
 		await Unlock()
 		
-		return ret
+		return .success(ret)
+	}
+	
+	func withLock<R>(_ body: ()async->R) async -> R? {
+		switch await withLockOrFailed(body) {
+		case .failure(_):
+			return nil
+		case .success(let ret):
+			return ret
+		}
 	}
 }

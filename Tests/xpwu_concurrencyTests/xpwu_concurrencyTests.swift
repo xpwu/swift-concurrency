@@ -81,4 +81,63 @@ final class xpwu_concurrencyTests: XCTestCase {
 		}
 		XCTAssertNil(rt)
 	}
+	
+	func testSem() async throws {
+		let con = 9
+		let sem = Semaphore(permits: 3)
+		
+		async let group = withTaskGroup(of: Void.self, returning: Bool.self) { group in
+			for _ in 0 ... con {
+				group.addTask {
+					let err = await sem.Acquire()
+					XCTAssertNil(err)
+				}
+			}
+			
+			await group.waitForAll()
+			return true
+		}
+		
+		try! await Task.sleep(nanoseconds: 1000000000)
+		
+		for _ in 0 ... con {
+			await sem.Release()
+		}
+		
+		let r = await group
+		XCTAssertTrue(r)
+	}
+	
+	func testSemCancel() async throws {
+		let con = 9
+		let sem = Semaphore(permits: 3)
+		
+		async let group = withTaskGroup(of: Void.self, returning: Bool.self) { group in
+			for _ in 0 ..< 3 {
+				group.addTask {
+					let err = await sem.Acquire()
+					XCTAssertNil(err)
+				}
+			}
+			
+			try! await Task.sleep(nanoseconds: 1000000000)
+			
+			for _ in 3 ..< con {
+				group.addTask {
+					let err = await sem.Acquire()
+					XCTAssertNotNil(err)
+				}
+			}
+			
+			try! await Task.sleep(nanoseconds: 1000000000)
+			
+			group.cancelAll()
+			
+			await group.waitForAll()
+			return true
+		}
+		
+		let r = await group
+		XCTAssertTrue(r)
+	}
 }

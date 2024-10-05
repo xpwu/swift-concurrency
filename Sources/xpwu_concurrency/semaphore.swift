@@ -19,17 +19,21 @@ actor semaphore {
 	}
 	
 	init(max: Int) {
-		self.max = max
+		self.max = [max, 1].max()!
 	}
 	
-	func tryAcquire(_ waiting: @escaping @Sendable ()->Void) -> Bool {
+	// nil: not suspend
+	func tryAcquire(_ waiting: @escaping @Sendable ()->Void) -> node<@Sendable ()->Void>? {
 		if (current < max) {
 			current += 1
-			return true
+			return nil
 		}
 		
-		acquireSuspend.en(waiting)
-		return false
+		return acquireSuspend.en(waiting)
+	}
+	
+	func cancel(_ n: node<@Sendable ()->Void>) {
+		n.inValid()
 	}
 	
 	func release() {
@@ -67,18 +71,50 @@ public class Semaphore {
 }
 
 public extension Semaphore {
-	func Acquire() async {
-		await withCheckedContinuation({ (continuation: CheckedContinuation<Void, Never>) in
-			Task {
-				let success = await sem.tryAcquire {
-					continuation.resume()
+	// Error: CancellationError
+	func Acquire() async -> Error? {
+		let cancer = canceler()
+		
+		return await withTaskCancellationHandler {
+			return await withCheckedContinuation({ (continuation: CheckedContinuation<Error?, Never>) in
+				
+				let resumeF = {(_ err: Error?)async ->Void in
+					if !(await cancer.resumedAndOld()) {
+						continuation.resume(returning: err)
+					}
 				}
 				
-				if success {
-					continuation.resume()
+				Task {
+					let node = await sem.tryAcquire {
+						Task {
+							await resumeF(nil)
+						}
+					}
+					
+					// not suspend
+					guard let node else {
+						await resumeF(nil)
+						return
+					}
+					
+					let success = await cancer.suspend {
+						await self.sem.cancel(node)
+						await resumeF( CancellationError())
+					}
+					// 失败，立即执行
+					if !success {
+						await self.sem.cancel(node)
+						await resumeF( CancellationError())
+					}
+				}
+			})
+		} onCancel: {
+			Task {
+				if let suspend = await cancer.cancel() {
+					await suspend()
 				}
 			}
-		})
+		}
 	}
 	
 	func Release() async {
