@@ -47,6 +47,7 @@ class queue<E> {
 	func de()-> E? {
 		while self.first != nil && !first!.isValid {
 			self.first = first!.next
+			self.count -= 1
 		}
 		
 		guard let first = first else {
