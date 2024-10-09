@@ -12,13 +12,13 @@ let package = Package(
             name: "xpwu_concurrency",
             targets: ["xpwu_concurrency"]),
     ],
-		dependencies: [.package(name:"xpwu_x", path: "../swift-x")],
+		dependencies: [.package(url: "https://github.com/xpwu/swift-x", .upToNextMajor(from: "1.0.0")),],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "xpwu_concurrency",
-						dependencies: [.product(name: "xpwu_x", package: "xpwu_x")]),
+						dependencies: [.product(name: "xpwu_x", package: "swift-x")]),
         .testTarget(
             name: "xpwu_concurrencyTests",
             dependencies: ["xpwu_concurrency"]),
