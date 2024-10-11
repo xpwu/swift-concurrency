@@ -60,7 +60,6 @@ class queue<E> {
 		// empty
 		if self.first == nil {
 			self.last = nil
-			self.count = 0
 		}
 		
 		self.count -= 1
