@@ -140,4 +140,13 @@ final class xpwu_concurrencyTests: XCTestCase {
 		let r = await group
 		XCTAssertTrue(r)
 	}
+	
+	func testSendCloseRec() async throws {
+		let ch = Channel<Bool>(buffer: 1)
+		_ = try! await ch.Send(true)
+		await ch.Close()
+		let ret = try! await ch.Receive()
+		XCTAssertNotNil(ret)
+		XCTAssertEqual(ret, true)
+	}
 }
