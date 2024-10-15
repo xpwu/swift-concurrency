@@ -132,6 +132,10 @@ actor channel<E: Sendable> {
 	func receive(ifsuspend waiting: @escaping @Sendable (Result<E, ChannelClosed>)->Void) -> isSuspended<E> {
 		
 		if let closed {
+			// 返回 close 之前没有读取完的数据
+			if let value = data.de() {
+				return .No(todo: nil, value: value)
+			}
 			return .Failed(closed)
 		}
 		
