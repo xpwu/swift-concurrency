@@ -56,3 +56,12 @@ func withTimeoutOrNil<R: Sendable>(_ duration: Duration, _ body:@escaping () asy
 func withTimeout<R: Sendable>(_ duration: Duration, _ body:@escaping () async throws/*(CancellationError)*/ -> R) async throws/*(CancellationError)*/ -> Result<R, TimeoutError>
 ```
 [Duration](https://github.com/xpwu/swift-x/blob/master/Sources/xpwu_x/duration.swift) 来自第三方库
+
+## 5、TaskQueue
+```swift
+init(@escaping () async ->Runner)
+func close(runner close: @escaping (Runner)->Void) async
+
+// Error: TaskQueueClosed|CancellationError
+func en<R>(_ task: @escaping (Runner) async ->R) async -> Result<R, Error>
+```
