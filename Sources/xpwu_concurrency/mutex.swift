@@ -4,7 +4,7 @@
 
 import Foundation
 
-public class Mutex {
+public final class Mutex: Sendable {
 	let sem = Semaphore(permits: 1)
 	
 	public init(){}

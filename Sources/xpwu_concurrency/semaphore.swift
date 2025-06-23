@@ -55,7 +55,7 @@ actor semaphore {
 	}
 }
 
-public class Semaphore {
+public final class Semaphore: Sendable {
 	let sem: semaphore
 	public let Permits: Int
 	public var AvailablePermits: Int {

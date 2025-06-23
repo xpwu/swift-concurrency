@@ -9,7 +9,7 @@ public struct ChannelClosed: Error {
 	public var msg: String = ""
 }
 
-public protocol SendChannel<E> {
+public protocol SendChannel<E>: Sendable {
 	associatedtype E: Sendable
 	// Error: ChannelClosed or CancellationError
 	func SendOrErr(_ e: E) async ->Error?
@@ -38,7 +38,7 @@ public extension SendChannel {
 	}
 }
 
-public protocol ReceiveChannel<E> {
+public protocol ReceiveChannel<E>: Sendable {
 	associatedtype E: Sendable
 	// Error: ChannelClosed or CancellationError
 	func ReceiveOrFailed() async -> Result<E, Error>
@@ -74,6 +74,12 @@ public extension ReceiveChannel {
 struct objectForCancel {
 	let cancelF: ()->Void
 }
+
+/**
+ close() 执行后，执行 sendxxx 的操作会返回失败，
+			执行 receivexxx 的操作会返回 close() 之前的未被 receive 的数据，
+			所有数据被 receive 完后，执行的 receivexxx 会返回失败
+ */
 
 actor channel<E: Sendable> {
 	// 以下所有的数据 仅能在 actor 内操作
@@ -164,7 +170,7 @@ actor channel<E: Sendable> {
 
 }
 
-public class Channel<E: Sendable> {
+public final class Channel<E: Sendable>: Sendable {
 	let chan: channel<E>
 	
 	public init(buffer: Int = 0) {
