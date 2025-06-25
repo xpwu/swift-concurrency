@@ -183,6 +183,11 @@ extension Int {
 }
 
 extension Channel: SendChannel {
+	/**
+	 close() 执行后，执行 sendxxx 的操作会返回失败，
+	 执行 receivexxx 的操作会返回 close() 之前的未被 receive 的数据，
+	 所有数据被 receive 完后，执行的 receivexxx 会返回失败
+	 */
 	public func Close(reason: String) async {
 		await chan.close(reason: reason)
 	}
