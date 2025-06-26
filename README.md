@@ -20,6 +20,10 @@ protocol ReceiveChannel<E> {
 
 class Channel<E: Sendable>: SendChannel, ReceiveChannel
 ```
+* Close() 特别说明：执行 Close() 后，所有的 Sendxxx 方法都会返回 error；
+所有的 Receivexxx 方法都会先依次返回 Close() 前已加入的数据，再次调用 Receivexxx 
+方法时，返回 error
+
 
 ## 2、Mutex
 ```swift
@@ -60,8 +64,9 @@ func withTimeout<R: Sendable>(_ duration: Duration, _ body:@escaping () async th
 ## 5、TaskQueue
 ```swift
 init(@escaping () async ->Runner)
-func close(runner close: @escaping (Runner)->Void) async
+func close(runner close: @escaping (Runner) async ->Void) async
 
 // Error: TaskQueueClosed|CancellationError
 func en<R>(_ task: @escaping (Runner) async ->R) async -> Result<R, Error>
 ```
+* close() 说明：close() 执行后，所有的 en() 都返回 error
