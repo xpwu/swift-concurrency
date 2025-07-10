@@ -19,7 +19,7 @@ actor semaphore {
 	}
 	
 	init(max: Int) {
-		self.max = [max, 1].max()!
+		self.max = Swift.max(1, max)
 	}
 	
 	// nil: not suspend
@@ -36,17 +36,30 @@ actor semaphore {
 		n.inValid()
 	}
 	
-	func release() {
-		if let d = acquireSuspend.de() {
-			d()
+	func release(_ cnt: Int = 1) {
+		var d = acquireSuspend.de()
+		var left = cnt
+		
+		while d != nil && left > 0 {
+			d!()
+			
+			left -= 1
+			if left > 0 {
+				d = acquireSuspend.de()
+			}
+		}
+		
+		if left == 0 {
 			return
 		}
 		
-		// de() == nil
-		current -= 1
-		assert(current >= 0)
+		current -= left
+		if current < 0 {
+			current = 0
+		}
 	}
 	
+	@available(*, deprecated)
 	func releaseAll() {
 		while let d = acquireSuspend.de() {
 			d()
@@ -127,11 +140,11 @@ public extension Semaphore {
 		}
 	}
 	
-	func Release() async {
-		await sem.release()
+	func Release(_ cnt: Int = 1) async {
+		await sem.release(cnt)
 	}
 	
-	func ReleaseAll() async {
-		await sem.releaseAll()
-	}
+//	func ReleaseAll() async {
+//		await sem.releaseAll()
+//	}
 }
