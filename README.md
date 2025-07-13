@@ -46,8 +46,7 @@ class Semaphore {
   // Error: CancellationError
   func AcquireOrErr() async -> Error?
   func Acquire() async throws/*(CancellationError)*/
-  func Release() async 
-  func ReleaseAll() async
+  func Release(count=1) async 
 }
 ```
 
